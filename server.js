@@ -52,7 +52,11 @@ app.get('/data', async (req, res) => {
         let luts = [];
         try {
           const lutsRes = await cloudinary.api.resources({ type: 'upload', prefix: `nocap-vault/${clientName}/LUTS`, resource_type: 'raw', max_results: 50 });
-          luts = lutsRes.resources.map(r => ({ name: r.public_id.split('/').pop() + '.' + r.format, url: r.secure_url }));
+          luts = lutsRes.resources.map(r => {
+            const baseName = r.public_id.split('/').pop();
+            const ext = r.format && r.format !== 'undefined' ? '.' + r.format : '';
+            return { name: baseName + ext, url: r.secure_url };
+          });
         } catch (e) {}
         return { name: clientName, logo, luts };
       })
@@ -62,7 +66,31 @@ app.get('/data', async (req, res) => {
 });
 
 app.delete('/client/:n', async (req, res) => {
-  try { await cloudinary.api.delete_folder(`nocap-vault/${req.params.n}`); } catch (e) {}
+  try {
+    const clientName = req.params.n;
+    // Pehle saari files delete karo
+    const allRes = await cloudinary.api.resources({
+      type: 'upload',
+      prefix: `nocap-vault/${clientName}`,
+      resource_type: 'raw',
+      max_results: 100
+    });
+    const imgRes = await cloudinary.api.resources({
+      type: 'upload',
+      prefix: `nocap-vault/${clientName}`,
+      resource_type: 'image',
+      max_results: 100
+    });
+    const allFiles = [...allRes.resources, ...imgRes.resources];
+    if (allFiles.length) {
+      await cloudinary.api.delete_resources(allFiles.map(r => r.public_id), { resource_type: 'raw' });
+      await cloudinary.api.delete_resources(imgRes.resources.map(r => r.public_id), { resource_type: 'image' });
+    }
+    // Phir folders delete karo
+    try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}/LUTS`); } catch(e) {}
+    try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}/Logo`); } catch(e) {}
+    try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}`); } catch(e) {}
+  } catch (e) { console.log('Delete error:', e.message); }
   res.json({ ok: true });
 });
 
