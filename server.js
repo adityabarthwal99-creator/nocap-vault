@@ -20,9 +20,9 @@ const storage = new CloudinaryStorage({
     const isLogo = file.fieldname === 'logo';
     return {
       folder: `nocap-vault/${clientName}/${isLogo ? 'Logo' : 'LUTS'}`,
-      resource_type: 'raw',
+      resource_type: isLogo ? 'image' : 'raw',
       public_id: file.originalname.replace(/\.[^/.]+$/, ''),
-      format: file.originalname.split('.').pop(),
+      format: isLogo ? undefined : file.originalname.split('.').pop(),
       overwrite: true
     };
   }
@@ -44,53 +44,86 @@ app.get('/data', async (req, res) => {
     const clients = await Promise.all(
       result.folders.map(async (folder) => {
         const clientName = folder.name;
+
         let logo = '';
         try {
-          const logoRes = await cloudinary.api.resources({ type: 'upload', prefix: `nocap-vault/${clientName}/Logo`, resource_type: 'image', max_results: 1 });
+          const logoRes = await cloudinary.api.resources({
+            type: 'upload',
+            prefix: `nocap-vault/${clientName}/Logo`,
+            resource_type: 'image',
+            max_results: 1
+          });
           if (logoRes.resources.length) logo = logoRes.resources[0].secure_url;
         } catch (e) {}
+
         let luts = [];
         try {
-          const lutsRes = await cloudinary.api.resources({ type: 'upload', prefix: `nocap-vault/${clientName}/LUTS`, resource_type: 'raw', max_results: 50 });
+          const lutsRes = await cloudinary.api.resources({
+            type: 'upload',
+            prefix: `nocap-vault/${clientName}/LUTS`,
+            resource_type: 'raw',
+            max_results: 50
+          });
           luts = lutsRes.resources.map(r => {
             const baseName = r.public_id.split('/').pop();
             const ext = r.format && r.format !== 'undefined' ? '.' + r.format : '';
             return { name: baseName + ext, url: r.secure_url };
           });
         } catch (e) {}
+
         return { name: clientName, logo, luts };
       })
     );
     res.json(clients);
-  } catch (e) { res.json([]); }
+  } catch (e) {
+    res.json([]);
+  }
 });
 
 app.delete('/client/:n', async (req, res) => {
   try {
     const clientName = req.params.n;
-    // Pehle saari files delete karo
-    const allRes = await cloudinary.api.resources({
-      type: 'upload',
-      prefix: `nocap-vault/${clientName}`,
-      resource_type: 'raw',
-      max_results: 100
-    });
-    const imgRes = await cloudinary.api.resources({
-      type: 'upload',
-      prefix: `nocap-vault/${clientName}`,
-      resource_type: 'image',
-      max_results: 100
-    });
-    const allFiles = [...allRes.resources, ...imgRes.resources];
-    if (allFiles.length) {
-      await cloudinary.api.delete_resources(allFiles.map(r => r.public_id), { resource_type: 'raw' });
-      await cloudinary.api.delete_resources(imgRes.resources.map(r => r.public_id), { resource_type: 'image' });
-    }
-    // Phir folders delete karo
-    try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}/LUTS`); } catch(e) {}
-    try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}/Logo`); } catch(e) {}
-    try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}`); } catch(e) {}
-  } catch (e) { console.log('Delete error:', e.message); }
+
+    // Raw files delete karo (LUTs)
+    try {
+      const rawRes = await cloudinary.api.resources({
+        type: 'upload',
+        prefix: `nocap-vault/${clientName}`,
+        resource_type: 'raw',
+        max_results: 100
+      });
+      if (rawRes.resources.length) {
+        await cloudinary.api.delete_resources(
+          rawRes.resources.map(r => r.public_id),
+          { resource_type: 'raw' }
+        );
+      }
+    } catch (e) {}
+
+    // Image files delete karo (Logo)
+    try {
+      const imgRes = await cloudinary.api.resources({
+        type: 'upload',
+        prefix: `nocap-vault/${clientName}`,
+        resource_type: 'image',
+        max_results: 100
+      });
+      if (imgRes.resources.length) {
+        await cloudinary.api.delete_resources(
+          imgRes.resources.map(r => r.public_id),
+          { resource_type: 'image' }
+        );
+      }
+    } catch (e) {}
+
+    // Folders delete karo
+    try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}/LUTS`); } catch (e) {}
+    try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}/Logo`); } catch (e) {}
+    try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}`); } catch (e) {}
+
+  } catch (e) {
+    console.log('Delete error:', e.message);
+  }
   res.json({ ok: true });
 });
 
