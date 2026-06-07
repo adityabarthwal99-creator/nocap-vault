@@ -42,6 +42,47 @@ app.post('/upload', (req, res) => {
   });
 });
 
+// Edit route — existing client ka logo/luts update karo
+app.post('/edit', (req, res) => {
+  upload.fields([{ name: 'logo' }, { name: 'luts' }])(req, res, async (err) => {
+    if (err) return res.status(500).json({ ok: false, error: err.message });
+    if (!req.body.name) return res.status(400).json({ ok: false, error: 'Client name missing' });
+
+    const clientName = req.body.name;
+
+    // Agar logo upload hua toh purana delete karo
+    if (req.files && req.files.logo) {
+      try {
+        const oldLogo = await cloudinary.api.resources({
+          type: 'upload',
+          prefix: `nocap-vault/${clientName}/Logo`,
+          resource_type: 'image',
+          max_results: 10
+        });
+        if (oldLogo.resources.length) {
+          await cloudinary.api.delete_resources(
+            oldLogo.resources.map(r => r.public_id),
+            { resource_type: 'image' }
+          );
+        }
+      } catch (e) {}
+    }
+
+    res.json({ ok: true });
+  });
+});
+
+// Single LUT delete
+app.delete('/lut', async (req, res) => {
+  const { clientName, publicId, format } = req.body;
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
+  } catch (e) {
+    console.log('LUT delete error:', e.message);
+  }
+  res.json({ ok: true });
+});
+
 app.get('/data', async (req, res) => {
   try {
     const result = await cloudinary.api.sub_folders('nocap-vault');
@@ -71,7 +112,7 @@ app.get('/data', async (req, res) => {
           luts = lutsRes.resources.map(r => {
             const baseName = r.public_id.split('/').pop();
             const ext = r.format && r.format !== 'undefined' ? '.' + r.format : '';
-            return { name: baseName + ext, url: r.secure_url };
+            return { name: baseName + ext, url: r.secure_url, publicId: r.public_id };
           });
         } catch (e) {}
 
@@ -87,44 +128,18 @@ app.get('/data', async (req, res) => {
 app.delete('/client/:n', async (req, res) => {
   try {
     const clientName = req.params.n;
-
     try {
-      const rawRes = await cloudinary.api.resources({
-        type: 'upload',
-        prefix: `nocap-vault/${clientName}`,
-        resource_type: 'raw',
-        max_results: 100
-      });
-      if (rawRes.resources.length) {
-        await cloudinary.api.delete_resources(
-          rawRes.resources.map(r => r.public_id),
-          { resource_type: 'raw' }
-        );
-      }
+      const rawRes = await cloudinary.api.resources({ type: 'upload', prefix: `nocap-vault/${clientName}`, resource_type: 'raw', max_results: 100 });
+      if (rawRes.resources.length) await cloudinary.api.delete_resources(rawRes.resources.map(r => r.public_id), { resource_type: 'raw' });
     } catch (e) {}
-
     try {
-      const imgRes = await cloudinary.api.resources({
-        type: 'upload',
-        prefix: `nocap-vault/${clientName}`,
-        resource_type: 'image',
-        max_results: 100
-      });
-      if (imgRes.resources.length) {
-        await cloudinary.api.delete_resources(
-          imgRes.resources.map(r => r.public_id),
-          { resource_type: 'image' }
-        );
-      }
+      const imgRes = await cloudinary.api.resources({ type: 'upload', prefix: `nocap-vault/${clientName}`, resource_type: 'image', max_results: 100 });
+      if (imgRes.resources.length) await cloudinary.api.delete_resources(imgRes.resources.map(r => r.public_id), { resource_type: 'image' });
     } catch (e) {}
-
     try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}/LUTS`); } catch (e) {}
     try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}/Logo`); } catch (e) {}
     try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}`); } catch (e) {}
-
-  } catch (e) {
-    console.log('Delete error:', e.message);
-  }
+  } catch (e) { console.log('Delete error:', e.message); }
   res.json({ ok: true });
 });
 
