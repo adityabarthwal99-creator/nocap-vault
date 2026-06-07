@@ -1,1 +1,13 @@
-{"scripts":{"start":"node server.js"},"dependencies":{"express":"latest","multer":"latest"}}
+{
+  "name": "nocap-vault",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "latest",
+    "multer": "latest",
+    "cloudinary": "latest",
+    "multer-storage-cloudinary": "latest"
+  }
+}
