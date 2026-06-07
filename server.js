@@ -18,10 +18,14 @@ const storage = new CloudinaryStorage({
   params: async (req, file) => {
     const clientName = req.body.name || 'unknown';
     const isLogo = file.fieldname === 'logo';
+    const cleanName = file.originalname
+      .replace(/\.[^/.]+$/, '')
+      .trim()
+      .replace(/\s+/g, '_');
     return {
       folder: `nocap-vault/${clientName}/${isLogo ? 'Logo' : 'LUTS'}`,
       resource_type: isLogo ? 'image' : 'raw',
-      public_id: file.originalname.replace(/\.[^/.]+$/, ''),
+      public_id: cleanName,
       format: isLogo ? undefined : file.originalname.split('.').pop(),
       overwrite: true
     };
@@ -84,7 +88,6 @@ app.delete('/client/:n', async (req, res) => {
   try {
     const clientName = req.params.n;
 
-    // Raw files delete karo (LUTs)
     try {
       const rawRes = await cloudinary.api.resources({
         type: 'upload',
@@ -100,7 +103,6 @@ app.delete('/client/:n', async (req, res) => {
       }
     } catch (e) {}
 
-    // Image files delete karo (Logo)
     try {
       const imgRes = await cloudinary.api.resources({
         type: 'upload',
@@ -116,7 +118,6 @@ app.delete('/client/:n', async (req, res) => {
       }
     } catch (e) {}
 
-    // Folders delete karo
     try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}/LUTS`); } catch (e) {}
     try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}/Logo`); } catch (e) {}
     try { await cloudinary.api.delete_folder(`nocap-vault/${clientName}`); } catch (e) {}
