@@ -1,60 +1,70 @@
 const express = require('express');
 const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
+const { v2: cloudinary } = require('cloudinary');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+
+cloudinary.config({
+  cloud_name: 'dnt1xm39h',
+  api_key: '897376296128194',
+  api_secret: '-_lqTSMtsGGY9r2DOPJa0KVxhiM'
+});
 
 const app = express();
 app.use(express.static('public'));
-app.use('/clients', express.static('clients'));
 app.use(express.json());
 
-// FIX: pehle name lo, phir folder banao
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => {
-      const clientName = req.body.name || 'unknown';
-      const subFolder = file.fieldname === 'logo' ? 'Logo' : 'LUTS';
-      const dir = path.join('clients', clientName, subFolder);
-      fs.mkdirSync(dir, { recursive: true });
-      cb(null, dir);
-    },
-    filename: (req, file, cb) => cb(null, file.originalname)
-  })
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => {
+    const clientName = req.body.name || 'unknown';
+    const isLogo = file.fieldname === 'logo';
+    return {
+      folder: `nocap-vault/${clientName}/${isLogo ? 'Logo' : 'LUTS'}`,
+      resource_type: 'raw',
+      public_id: file.originalname.replace(/\.[^/.]+$/, ''),
+      format: file.originalname.split('.').pop(),
+      overwrite: true
+    };
+  }
 });
 
-// Upload route
+const upload = multer({ storage });
+
 app.post('/upload', (req, res) => {
-  upload.fields([{ name: 'logo' }, { name: 'luts' }])(req, res, (err) => {
+  upload.fields([{ name: 'logo' }, { name: 'luts' }])(req, res, async (err) => {
     if (err) return res.status(500).json({ ok: false, error: err.message });
     if (!req.body.name) return res.status(400).json({ ok: false, error: 'Client name missing' });
     res.json({ ok: true });
   });
 });
 
-// Scan clients folder
-function scan() {
-  if (!fs.existsSync('clients')) return [];
-  return fs.readdirSync('clients')
-    .filter(n => fs.statSync(`clients/${n}`).isDirectory())
-    .map(n => {
-      const logoDir = `clients/${n}/Logo`;
-      const lutsDir = `clients/${n}/LUTS`;
-      const logoFiles = fs.existsSync(logoDir) ? fs.readdirSync(logoDir) : [];
-      const lutFiles = fs.existsSync(lutsDir) ? fs.readdirSync(lutsDir) : [];
-      return {
-        name: n,
-        logo: logoFiles.length ? `/clients/${n}/Logo/${logoFiles[0]}` : '',
-        luts: lutFiles.map(x => ({ name: x, url: `/clients/${n}/LUTS/${x}` }))
-      };
-    });
-}
+app.get('/data', async (req, res) => {
+  try {
+    const result = await cloudinary.api.sub_folders('nocap-vault');
+    const clients = await Promise.all(
+      result.folders.map(async (folder) => {
+        const clientName = folder.name;
+        let logo = '';
+        try {
+          const logoRes = await cloudinary.api.resources({ type: 'upload', prefix: `nocap-vault/${clientName}/Logo`, resource_type: 'image', max_results: 1 });
+          if (logoRes.resources.length) logo = logoRes.resources[0].secure_url;
+        } catch (e) {}
+        let luts = [];
+        try {
+          const lutsRes = await cloudinary.api.resources({ type: 'upload', prefix: `nocap-vault/${clientName}/LUTS`, resource_type: 'raw', max_results: 50 });
+          luts = lutsRes.resources.map(r => ({ name: r.public_id.split('/').pop() + '.' + r.format, url: r.secure_url }));
+        } catch (e) {}
+        return { name: clientName, logo, luts };
+      })
+    );
+    res.json(clients);
+  } catch (e) { res.json([]); }
+});
 
-app.get('/data', (req, res) => res.json(scan()));
-
-app.delete('/client/:n', (req, res) => {
-  const dir = 'clients/' + req.params.n;
-  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+app.delete('/client/:n', async (req, res) => {
+  try { await cloudinary.api.delete_folder(`nocap-vault/${req.params.n}`); } catch (e) {}
   res.json({ ok: true });
 });
 
-app.listen(3000, () => console.log('✅ NOCAP VAULT RUNNING → http://localhost:3000'));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`✅ NOCAP VAULT RUNNING → http://localhost:${PORT}`));
